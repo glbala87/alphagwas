@@ -1,0 +1,110 @@
+# Cardiovascular GWAS Configuration
+# Customize the values below for your specific study
+
+study:
+  name: "cardiovascular_gwas"
+  phenotype: "cardiovascular"  # e.g., CAD, blood_pressure, lipids
+  description: "Cardiovascular GWAS variant prioritization using AlphaGenome"
+
+# =============================================================================
+# STEP 1: Configure your GWAS summary statistics
+# =============================================================================
+gwas:
+  # Path to your GWAS summary statistics file
+  input_file: "data/input/your_gwas_sumstats.tsv"  # <-- CHANGE THIS
+
+  # Map YOUR column names to standard names
+  # Look at your file header and adjust these mappings
+  columns:
+    chromosome: "CHR"      # Column with chromosome number
+    position: "BP"         # Column with base pair position
+    rsid: "SNP"            # Column with rs IDs
+    effect_allele: "A1"    # Effect/risk allele
+    other_allele: "A2"     # Other/reference allele
+    pvalue: "P"            # P-value column
+    beta: "BETA"           # Effect size (optional)
+    se: "SE"               # Standard error (optional)
+
+  # Significance thresholds
+  pvalue_threshold: 5.0e-8      # Genome-wide significance
+  suggestive_threshold: 1.0e-5  # Suggestive threshold
+
+# =============================================================================
+# STEP 2: Define your loci of interest (optional but recommended)
+# =============================================================================
+# If you know specific loci to focus on, define them here
+# Otherwise, the pipeline will use all genome-wide significant regions
+loci:
+  # Example loci - REPLACE with your actual loci
+  - name: "9p21_CAD"           # Famous CAD locus
+    chromosome: "9"
+    start: 21900000
+    end: 22200000
+    lead_snp: "rs1333049"
+
+  # Add more loci as needed:
+  # - name: "locus_name"
+  #   chromosome: "X"
+  #   start: 12345678
+  #   end: 12456789
+  #   lead_snp: "rs..."
+
+# =============================================================================
+# STEP 3: Reference genome settings
+# =============================================================================
+reference:
+  input_build: "hg19"   # Your GWAS coordinates: hg19 or hg38
+  output_build: "hg38"  # AlphaGenome requires hg38
+  liftover_chain: "data/input/hg19ToHg38.over.chain.gz"
+
+# =============================================================================
+# STEP 4: LD settings (for finding proxy variants)
+# =============================================================================
+ld:
+  population: "EUR"     # EUR, AFR, EAS, SAS, AMR (match your GWAS population)
+  r2_threshold: 0.8     # LD threshold for proxies
+  window_kb: 500        # Window around lead SNPs (kb)
+  vcf_path: "data/input/1000genomes/"  # Path to 1000 Genomes VCFs
+
+# =============================================================================
+# STEP 5: AlphaGenome settings - IMPORTANT for cardiovascular
+# =============================================================================
+alphagenome:
+  # Tissues relevant for cardiovascular traits
+  tissues:
+    - "Heart_Atrial_Appendage"
+    - "Heart_Left_Ventricle"
+    - "Artery_Aorta"
+    - "Artery_Coronary"
+    - "Artery_Tibial"
+    - "Whole_Blood"
+    - "Liver"                    # Lipid metabolism
+    - "Adipose_Subcutaneous"     # Metabolic
+    - "Adipose_Visceral_Omentum"
+    - "Muscle_Skeletal"
+
+  # Prediction modalities
+  modalities:
+    - "expression"
+    - "chromatin_accessibility"
+    - "histone_marks"
+    - "transcription_factor"
+    - "splicing"
+
+  batch_size: 100
+  checkpoint_every: 50
+
+# =============================================================================
+# STEP 6: Output settings
+# =============================================================================
+output:
+  dir: "data/output"
+  prefix: "cardio"  # Output files will be cardio_ranked_variants.tsv, etc.
+  formats:
+    - "tsv"
+    - "parquet"
+
+# Scoring parameters
+scoring:
+  consensus_method: "mean"      # How to combine tissue scores
+  min_effect_threshold: 0.1     # Minimum effect to consider significant

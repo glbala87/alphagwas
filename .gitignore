@@ -1,0 +1,60 @@
+# Data files (too large for git)
+data/input/*.vcf*
+data/input/*.gz
+data/input/1000genomes/
+data/intermediate/
+data/output/
+
+# Keep example data
+!data/input/example_gwas_sumstats.tsv
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets - NEVER commit API keys
+.env
+*.env
+config/*_secret.yaml
+
+# Logs
+*.log

@@ -1,0 +1,89 @@
+# AlphaGWAS Pipeline Configuration
+# Modify these settings for your phenotype/study
+
+study:
+  name: "my_gwas_study"
+  phenotype: "your_phenotype"
+  description: "GWAS variant prioritization using AlphaGenome"
+
+# GWAS summary statistics settings
+gwas:
+  input_file: "data/input/gwas_sumstats.tsv"
+  # Column mappings (adjust to match your file format)
+  columns:
+    chromosome: "CHR"
+    position: "BP"
+    rsid: "SNP"
+    effect_allele: "A1"
+    other_allele: "A2"
+    pvalue: "P"
+    beta: "BETA"
+    se: "SE"
+  # Significance thresholds
+  pvalue_threshold: 5.0e-8  # Genome-wide significance
+  suggestive_threshold: 1.0e-5
+
+# Genomic regions of interest (define your loci)
+loci:
+  - name: "locus_1"
+    chromosome: "1"
+    start: 39000000
+    end: 40000000
+    lead_snp: "rs12345"
+  # Add more loci as needed
+  # - name: "locus_2"
+  #   chromosome: "2"
+  #   start: 100000
+  #   end: 200000
+
+# Reference genome settings
+reference:
+  input_build: "hg19"  # or hg38
+  output_build: "hg38"
+  liftover_chain: "data/input/hg19ToHg38.over.chain.gz"
+
+# LD proxy settings (1000 Genomes)
+ld:
+  population: "EUR"  # EUR, AFR, EAS, SAS, AMR
+  r2_threshold: 0.8
+  window_kb: 500
+  # Path to 1000 Genomes VCF (download separately)
+  vcf_path: "data/input/1000genomes/"
+
+# AlphaGenome settings
+alphagenome:
+  # Tissues to analyze (GTEx tissues)
+  tissues:
+    - "Whole_Blood"
+    - "Skeletal_Muscle"
+    - "Adipose_Subcutaneous"
+    - "Liver"
+    - "Brain_Cortex"
+    # Add tissues relevant to your phenotype
+
+  # Modalities to predict
+  modalities:
+    - "expression"
+    - "chromatin_accessibility"
+    - "histone_marks"
+    - "transcription_factor"
+    - "splicing"
+
+  # Batch settings
+  batch_size: 100
+  checkpoint_every: 50
+
+# Output settings
+output:
+  dir: "data/output"
+  prefix: "my_study"
+  formats:
+    - "tsv"
+    - "parquet"
+
+# Scoring and prioritization
+scoring:
+  # Weight for consensus ranking across tissues
+  consensus_method: "mean"  # mean, median, max
+  # Minimum effect size to consider
+  min_effect_threshold: 0.1

@@ -1,0 +1,65 @@
+# Example AlphaGWAS Configuration
+# Use this as a template for your own studies
+
+study:
+  name: "example_gwas"
+  phenotype: "example_trait"
+  description: "Example GWAS variant prioritization"
+
+gwas:
+  input_file: "data/input/example_gwas_sumstats.tsv"
+  columns:
+    chromosome: "CHR"
+    position: "BP"
+    rsid: "SNP"
+    effect_allele: "A1"
+    other_allele: "A2"
+    pvalue: "P"
+    beta: "BETA"
+    se: "SE"
+  pvalue_threshold: 5.0e-8
+  suggestive_threshold: 1.0e-5
+
+loci:
+  - name: "chr1_locus"
+    chromosome: "1"
+    start: 39000000
+    end: 40000000
+    lead_snp: "rs12345"
+  - name: "chr3_locus"
+    chromosome: "3"
+    start: 49500000
+    end: 50500000
+    lead_snp: "rs34567"
+
+reference:
+  input_build: "hg19"
+  output_build: "hg38"
+  liftover_chain: "data/input/hg19ToHg38.over.chain.gz"
+
+ld:
+  population: "EUR"
+  r2_threshold: 0.8
+  window_kb: 500
+  vcf_path: "data/input/1000genomes/"
+
+alphagenome:
+  tissues:
+    - "Whole_Blood"
+    - "Liver"
+  modalities:
+    - "expression"
+    - "chromatin_accessibility"
+  batch_size: 50
+  checkpoint_every: 25
+
+output:
+  dir: "data/output"
+  prefix: "example"
+  formats:
+    - "tsv"
+    - "parquet"
+
+scoring:
+  consensus_method: "mean"
+  min_effect_threshold: 0.1
