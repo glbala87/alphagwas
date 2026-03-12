@@ -5,6 +5,12 @@ Step 4: Run AlphaGenome variant effect predictions.
 This script interfaces with Google DeepMind's AlphaGenome model to predict
 functional effects of genetic variants across tissues and modalities.
 
+Features:
+- Parallel processing with configurable worker threads
+- Automatic retry with exponential backoff
+- Progress tracking with tqdm/rich
+- Checkpoint/resume capability
+
 AlphaGenome Setup:
 1. Clone and install: git clone https://github.com/google-deepmind/alphagenome.git
                       pip install ./alphagenome
@@ -20,11 +26,32 @@ from pathlib import Path
 import logging
 import yaml
 import json
-from typing import Dict, List, Optional, Any
-from dataclasses import dataclass
+from typing import Dict, List, Optional, Any, Tuple
+from dataclasses import dataclass, field
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Import utilities
+try:
+    from .utils import (
+        retry_with_backoff,
+        progress_iterator,
+        ProgressTracker,
+        setup_logging,
+        print_summary_table,
+        print_panel
+    )
+except ImportError:
+    from utils import (
+        retry_with_backoff,
+        progress_iterator,
+        ProgressTracker,
+        setup_logging,
+        print_summary_table,
+        print_panel
+    )
+
 logger = logging.getLogger(__name__)
 
 
@@ -94,6 +121,12 @@ class AlphaGenomePredictor:
     - Transcription factor binding
     - 3D chromatin contacts
     - Splicing
+
+    Features:
+    - Parallel processing with ThreadPoolExecutor
+    - Automatic retry with exponential backoff
+    - Progress tracking
+    - Checkpoint/resume support
     """
 
     # Modality to AlphaGenome OutputType mapping
@@ -113,6 +146,16 @@ class AlphaGenomePredictor:
         self.modalities = self.config.get('modalities', ['expression'])
         self.batch_size = self.config.get('batch_size', 100)
         self.checkpoint_every = self.config.get('checkpoint_every', 50)
+
+        # Performance settings
+        self.max_workers = self.config.get('max_workers', 4)
+        self.max_retries = self.config.get('max_retries', 3)
+        self.retry_delay = self.config.get('retry_delay', 1.0)
+
+        # Thread-safe counters
+        self._lock = threading.Lock()
+        self._completed_count = 0
+        self._error_count = 0
 
         # Get API key from config or environment
         self.api_key = self.config.get('api_key') or os.environ.get('ALPHAGENOME_API_KEY')
@@ -188,14 +231,40 @@ class AlphaGenomePredictor:
             Dictionary with prediction results
         """
         if self.model is not None:
-            try:
-                return self._predict_with_api(chrom, pos, ref, alt, tissue, modality)
-            except Exception as e:
-                logger.error(f"Prediction failed for chr{chrom}:{pos} {ref}>{alt}: {e}")
-                return None
+            return self._predict_with_retry(chrom, pos, ref, alt, tissue, modality)
         else:
             # Mock prediction for testing
             return self._mock_predict(chrom, pos, ref, alt, tissue, modality)
+
+    def _predict_with_retry(
+        self,
+        chrom: str,
+        pos: int,
+        ref: str,
+        alt: str,
+        tissue: str,
+        modality: str
+    ) -> Optional[Dict[str, Any]]:
+        """Predict with retry logic."""
+        last_error = None
+
+        for attempt in range(self.max_retries + 1):
+            try:
+                return self._predict_with_api(chrom, pos, ref, alt, tissue, modality)
+            except Exception as e:
+                last_error = e
+                if attempt < self.max_retries:
+                    delay = self.retry_delay * (2 ** attempt) * (0.5 + np.random.random())
+                    logger.warning(
+                        f"Attempt {attempt + 1}/{self.max_retries + 1} failed for "
+                        f"chr{chrom}:{pos}: {e}. Retrying in {delay:.1f}s..."
+                    )
+                    time.sleep(delay)
+
+        logger.error(f"All retries failed for chr{chrom}:{pos} {ref}>{alt}: {last_error}")
+        with self._lock:
+            self._error_count += 1
+        return None
 
     def _predict_with_api(
         self,
@@ -283,7 +352,8 @@ class AlphaGenomePredictor:
     def predict_batch(
         self,
         variants: pd.DataFrame,
-        checkpoint_path: Optional[str] = None
+        checkpoint_path: Optional[str] = None,
+        use_parallel: bool = True
     ) -> List[Dict[str, Any]]:
         """
         Run predictions for a batch of variants across all tissues and modalities.
@@ -291,6 +361,7 @@ class AlphaGenomePredictor:
         Args:
             variants: DataFrame with columns: chromosome, position, ref, alt
             checkpoint_path: Path to save/load checkpoints
+            use_parallel: Enable parallel processing (default: True)
 
         Returns:
             List of prediction dictionaries
@@ -300,58 +371,190 @@ class AlphaGenomePredictor:
         # Load checkpoint if exists
         completed_variants = set()
         if checkpoint_path and Path(checkpoint_path).exists():
-            with open(checkpoint_path) as f:
-                checkpoint = json.load(f)
-                all_predictions = checkpoint.get('predictions', [])
-                completed_variants = set(checkpoint.get('completed', []))
-                logger.info(f"Resumed from checkpoint: {len(completed_variants)} variants already processed")
+            try:
+                with open(checkpoint_path) as f:
+                    checkpoint = json.load(f)
+                    all_predictions = checkpoint.get('predictions', [])
+                    completed_variants = set(checkpoint.get('completed', []))
+                    logger.info(f"Resumed from checkpoint: {len(completed_variants)} variants already processed")
+            except (json.JSONDecodeError, KeyError) as e:
+                logger.warning(f"Could not load checkpoint: {e}. Starting fresh.")
 
-        total_predictions = len(variants) * len(self.tissues) * len(self.modalities)
-        logger.info(f"Running {total_predictions} predictions ({len(variants)} variants x {len(self.tissues)} tissues x {len(self.modalities)} modalities)")
-
-        count = 0
+        # Filter out already completed variants
+        pending_variants = []
         for idx, variant in variants.iterrows():
             variant_id = f"chr{variant['chromosome']}:{variant['position']}"
+            if variant_id not in completed_variants:
+                pending_variants.append((idx, variant))
 
-            if variant_id in completed_variants:
-                continue
+        total_predictions = len(pending_variants) * len(self.tissues) * len(self.modalities)
 
-            # Get alleles
-            ref = variant.get('ref', variant.get('other_allele', 'N'))
-            alt = variant.get('alt', variant.get('effect_allele', 'N'))
+        if total_predictions == 0:
+            logger.info("All variants already processed")
+            return all_predictions
 
-            for tissue in self.tissues:
-                for modality in self.modalities:
-                    result = self.predict_variant(
-                        chrom=str(variant['chromosome']),
-                        pos=int(variant['position']),
-                        ref=str(ref),
-                        alt=str(alt),
-                        tissue=tissue,
-                        modality=modality
-                    )
+        # Print summary
+        print_panel(
+            f"Variants: {len(pending_variants)}\n"
+            f"Tissues: {len(self.tissues)}\n"
+            f"Modalities: {len(self.modalities)}\n"
+            f"Total predictions: {total_predictions}\n"
+            f"Workers: {self.max_workers if use_parallel else 1}",
+            title="AlphaGenome Predictions",
+            style="blue"
+        )
 
-                    if result:
-                        result['rsid'] = variant.get('rsid', variant_id)
-                        result['chromosome'] = variant['chromosome']
-                        result['position'] = variant['position']
-                        all_predictions.append(result)
-
-                    count += 1
-                    if count % 100 == 0:
-                        logger.info(f"Progress: {count}/{total_predictions} predictions")
-
-            completed_variants.add(variant_id)
-
-            # Save checkpoint
-            if checkpoint_path and len(completed_variants) % self.checkpoint_every == 0:
-                self._save_checkpoint(checkpoint_path, all_predictions, completed_variants)
+        if use_parallel and self.max_workers > 1:
+            all_predictions = self._predict_batch_parallel(
+                pending_variants, all_predictions, completed_variants,
+                checkpoint_path, total_predictions
+            )
+        else:
+            all_predictions = self._predict_batch_sequential(
+                pending_variants, all_predictions, completed_variants,
+                checkpoint_path, total_predictions
+            )
 
         # Final checkpoint
         if checkpoint_path:
             self._save_checkpoint(checkpoint_path, all_predictions, completed_variants)
 
+        # Print summary
+        print_summary_table({
+            'Total predictions': len(all_predictions),
+            'Successful': len(all_predictions),
+            'Errors': self._error_count,
+            'Variants processed': len(completed_variants)
+        }, title="Prediction Summary")
+
         return all_predictions
+
+    def _predict_batch_sequential(
+        self,
+        pending_variants: List[Tuple[int, pd.Series]],
+        all_predictions: List[Dict],
+        completed_variants: set,
+        checkpoint_path: Optional[str],
+        total_predictions: int
+    ) -> List[Dict[str, Any]]:
+        """Sequential batch processing."""
+        count = 0
+
+        with ProgressTracker(total=total_predictions, desc="Predicting variants") as tracker:
+            for idx, variant in pending_variants:
+                variant_id = f"chr{variant['chromosome']}:{variant['position']}"
+
+                # Get alleles
+                ref = variant.get('ref', variant.get('other_allele', 'N'))
+                alt = variant.get('alt', variant.get('effect_allele', 'N'))
+
+                for tissue in self.tissues:
+                    for modality in self.modalities:
+                        result = self.predict_variant(
+                            chrom=str(variant['chromosome']),
+                            pos=int(variant['position']),
+                            ref=str(ref),
+                            alt=str(alt),
+                            tissue=tissue,
+                            modality=modality
+                        )
+
+                        if result:
+                            result['rsid'] = variant.get('rsid', variant_id)
+                            result['chromosome'] = variant['chromosome']
+                            result['position'] = variant['position']
+                            all_predictions.append(result)
+
+                        count += 1
+                        tracker.advance()
+
+                completed_variants.add(variant_id)
+
+                # Save checkpoint periodically
+                if checkpoint_path and len(completed_variants) % self.checkpoint_every == 0:
+                    self._save_checkpoint(checkpoint_path, all_predictions, completed_variants)
+
+        return all_predictions
+
+    def _predict_batch_parallel(
+        self,
+        pending_variants: List[Tuple[int, pd.Series]],
+        all_predictions: List[Dict],
+        completed_variants: set,
+        checkpoint_path: Optional[str],
+        total_predictions: int
+    ) -> List[Dict[str, Any]]:
+        """Parallel batch processing using ThreadPoolExecutor."""
+
+        # Create list of all prediction tasks
+        tasks = []
+        for idx, variant in pending_variants:
+            variant_id = f"chr{variant['chromosome']}:{variant['position']}"
+            ref = variant.get('ref', variant.get('other_allele', 'N'))
+            alt = variant.get('alt', variant.get('effect_allele', 'N'))
+
+            for tissue in self.tissues:
+                for modality in self.modalities:
+                    tasks.append({
+                        'variant_id': variant_id,
+                        'chrom': str(variant['chromosome']),
+                        'pos': int(variant['position']),
+                        'ref': str(ref),
+                        'alt': str(alt),
+                        'tissue': tissue,
+                        'modality': modality,
+                        'rsid': variant.get('rsid', variant_id)
+                    })
+
+        logger.info(f"Starting parallel prediction with {self.max_workers} workers...")
+
+        results_lock = threading.Lock()
+
+        with ProgressTracker(total=len(tasks), desc="Predicting variants") as tracker:
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                futures = {
+                    executor.submit(self._predict_task, task): task
+                    for task in tasks
+                }
+
+                for future in as_completed(futures):
+                    task = futures[future]
+                    try:
+                        result = future.result()
+                        if result:
+                            with results_lock:
+                                all_predictions.append(result)
+                                completed_variants.add(task['variant_id'])
+                    except Exception as e:
+                        logger.error(f"Task failed for {task['variant_id']}: {e}")
+
+                    tracker.advance()
+
+                    # Checkpoint periodically
+                    with self._lock:
+                        self._completed_count += 1
+                        if checkpoint_path and self._completed_count % (self.checkpoint_every * len(self.tissues) * len(self.modalities)) == 0:
+                            self._save_checkpoint(checkpoint_path, all_predictions, completed_variants)
+
+        return all_predictions
+
+    def _predict_task(self, task: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Execute a single prediction task."""
+        result = self.predict_variant(
+            chrom=task['chrom'],
+            pos=task['pos'],
+            ref=task['ref'],
+            alt=task['alt'],
+            tissue=task['tissue'],
+            modality=task['modality']
+        )
+
+        if result:
+            result['rsid'] = task['rsid']
+            result['chromosome'] = task['chrom']
+            result['position'] = task['pos']
+
+        return result
 
     def _save_checkpoint(
         self,
@@ -370,9 +573,32 @@ class AlphaGenomePredictor:
         logger.info(f"Checkpoint saved: {len(completed)} variants processed")
 
 
-def main(config_path: str = "config/config.yaml"):
-    """Main AlphaGenome prediction workflow."""
+def main(
+    config_path: str = "config/config.yaml",
+    use_parallel: bool = True,
+    max_workers: Optional[int] = None,
+    no_checkpoint: bool = False,
+    dry_run: bool = False
+):
+    """
+    Main AlphaGenome prediction workflow.
+
+    Args:
+        config_path: Path to configuration file
+        use_parallel: Enable parallel processing
+        max_workers: Override max workers from config
+        no_checkpoint: Disable checkpoint saving
+        dry_run: Validate inputs without running predictions
+    """
+    start_time = time.time()
+
     config = load_config(config_path)
+
+    # Override max_workers if specified
+    if max_workers:
+        if 'alphagenome' not in config:
+            config['alphagenome'] = {}
+        config['alphagenome']['max_workers'] = max_workers
 
     # Initialize predictor
     predictor = AlphaGenomePredictor(config)
@@ -397,15 +623,38 @@ def main(config_path: str = "config/config.yaml"):
 
     if variants is None:
         logger.error("No input variant file found. Run previous steps first.")
-        return
+        return None
+
+    # Validate input
+    required_cols = ['chromosome', 'position']
+    missing_cols = [c for c in required_cols if c not in variants.columns]
+    if missing_cols:
+        logger.error(f"Missing required columns: {missing_cols}")
+        return None
+
+    if dry_run:
+        print_summary_table({
+            'Variants': len(variants),
+            'Tissues': len(predictor.tissues),
+            'Modalities': len(predictor.modalities),
+            'Total predictions': len(variants) * len(predictor.tissues) * len(predictor.modalities),
+            'Parallel': use_parallel,
+            'Workers': predictor.max_workers
+        }, title="Dry Run - Would Process")
+        return None
 
     # Run predictions
-    checkpoint_path = intermediate_dir / f"{prefix}_alphagenome_checkpoint.json"
+    checkpoint_path = None if no_checkpoint else str(intermediate_dir / f"{prefix}_alphagenome_checkpoint.json")
 
     predictions = predictor.predict_batch(
         variants,
-        checkpoint_path=str(checkpoint_path)
+        checkpoint_path=checkpoint_path,
+        use_parallel=use_parallel
     )
+
+    if not predictions:
+        logger.warning("No predictions generated")
+        return None
 
     # Convert to DataFrame
     pred_df = pd.DataFrame(predictions)
@@ -423,13 +672,51 @@ def main(config_path: str = "config/config.yaml"):
     except ImportError:
         logger.warning("pyarrow not installed, skipping parquet output")
 
+    # Print runtime
+    elapsed = time.time() - start_time
+    logger.info(f"Total runtime: {elapsed:.1f}s ({elapsed/60:.1f} minutes)")
+
     return pred_df
 
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Run AlphaGenome variant effect predictions")
-    parser.add_argument("--config", default="config/config.yaml", help="Path to config file")
+    parser = argparse.ArgumentParser(
+        description="Run AlphaGenome variant effect predictions",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python alphagenome_predict.py --config config.yaml
+  python alphagenome_predict.py --workers 8 --parallel
+  python alphagenome_predict.py --dry-run  # Validate without running
+        """
+    )
+    parser.add_argument("--config", "-c", default="config/config.yaml",
+                        help="Path to config file")
+    parser.add_argument("--parallel", "-p", action="store_true", default=True,
+                        help="Enable parallel processing (default: True)")
+    parser.add_argument("--no-parallel", dest="parallel", action="store_false",
+                        help="Disable parallel processing")
+    parser.add_argument("--workers", "-w", type=int, default=None,
+                        help="Number of parallel workers (default: from config or 4)")
+    parser.add_argument("--no-checkpoint", action="store_true",
+                        help="Disable checkpoint saving")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Validate inputs without running predictions")
+    parser.add_argument("--verbose", "-v", action="store_true",
+                        help="Enable verbose logging")
+
     args = parser.parse_args()
 
-    main(args.config)
+    if args.verbose:
+        setup_logging(level=logging.DEBUG)
+    else:
+        setup_logging(level=logging.INFO)
+
+    main(
+        config_path=args.config,
+        use_parallel=args.parallel,
+        max_workers=args.workers,
+        no_checkpoint=args.no_checkpoint,
+        dry_run=args.dry_run
+    )
