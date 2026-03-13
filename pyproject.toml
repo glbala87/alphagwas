@@ -1,0 +1,145 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "alphagwas"
+version = "1.0.0"
+description = "GWAS Variant Prioritization Pipeline using AlphaGenome"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "BalaSubramani Gattu Linga", email = "glbala87@github.com"}
+]
+maintainers = [
+    {name = "BalaSubramani Gattu Linga", email = "glbala87@github.com"}
+]
+keywords = [
+    "gwas",
+    "genetics",
+    "genomics",
+    "variant-prioritization",
+    "alphagenome",
+    "bioinformatics",
+    "deep-learning"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+requires-python = ">=3.9"
+dependencies = [
+    "pandas>=1.5.0",
+    "numpy>=1.23.0",
+    "pyyaml>=6.0",
+    "scipy>=1.9.0",
+    "requests>=2.28.0",
+]
+
+[project.optional-dependencies]
+genomics = [
+    "pyliftover>=0.4",
+    "cyvcf2>=0.30.0",
+    "pyarrow>=10.0.0",
+]
+viz = [
+    "matplotlib>=3.6.0",
+    "seaborn>=0.12.0",
+    "plotly>=5.11.0",
+]
+ux = [
+    "tqdm>=4.64.0",
+    "rich>=12.0.0",
+]
+streamlit = [
+    "streamlit>=1.28.0",
+]
+all = [
+    "alphagwas[genomics,viz,ux,streamlit]",
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=22.0.0",
+    "flake8>=5.0.0",
+    "mypy>=0.990",
+    "isort>=5.10.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/glbala87/alphagwas"
+Documentation = "https://github.com/glbala87/alphagwas#readme"
+Repository = "https://github.com/glbala87/alphagwas.git"
+Issues = "https://github.com/glbala87/alphagwas/issues"
+
+[project.scripts]
+alphagwas = "run_pipeline:main"
+
+[tool.setuptools]
+packages = ["scripts"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+"*" = ["*.yaml", "*.yml"]
+
+[tool.black]
+line-length = 100
+target-version = ['py39', 'py310', 'py311', 'py312']
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+known_first_party = ["scripts"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]
+
+[tool.coverage.run]
+source = ["scripts"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
