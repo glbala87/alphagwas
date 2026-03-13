@@ -34,6 +34,13 @@ try:
 except ImportError:
     pass
 
+# LocusZoom plots
+try:
+    from . import locuszoom
+    __all__.append('locuszoom')
+except ImportError:
+    pass
+
 # Variant annotation (requires requests)
 try:
     from . import annotate

@@ -46,6 +46,8 @@ env/
 # Jupyter
 .ipynb_checkpoints/
 *.ipynb
+# But keep tutorial notebooks
+!notebooks/*.ipynb
 
 # OS
 .DS_Store
