@@ -1,0 +1,38 @@
+# AlphaGWAS Terraform Variables
+# Copy this file to terraform.tfvars and customize
+
+# AWS Configuration
+aws_region   = "us-east-1"
+project_name = "alphagwas"
+environment  = "development"  # development, staging, production
+
+# VPC Configuration
+vpc_cidr = "10.0.0.0/16"
+
+# API Service Configuration
+api_cpu           = 512    # CPU units (512 = 0.5 vCPU)
+api_memory        = 1024   # Memory in MB
+api_desired_count = 2      # Number of API containers
+
+# Worker Service Configuration
+worker_cpu    = 2048  # CPU units (2048 = 2 vCPU)
+worker_memory = 4096  # Memory in MB
+
+# Auto Scaling
+enable_autoscaling = true
+api_min_count      = 1
+api_max_count      = 10
+
+# Database (set to true for production)
+enable_rds         = false
+rds_instance_class = "db.t3.micro"
+# rds_password     = "your-secure-password"  # Use environment variable or secrets manager
+
+# Logging
+log_retention_days = 30
+
+# Additional Tags
+additional_tags = {
+  Team      = "Bioinformatics"
+  CostCenter = "Research"
+}

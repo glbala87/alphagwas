@@ -89,3 +89,24 @@ try:
     __all__.append('api')
 except ImportError:
     pass
+
+# Database backend (requires sqlalchemy)
+try:
+    from . import database
+    __all__.append('database')
+except ImportError:
+    pass
+
+# Mendelian Randomization
+try:
+    from . import mendelian_randomization
+    __all__.append('mendelian_randomization')
+except ImportError:
+    pass
+
+# Polygenic Risk Scores
+try:
+    from . import prs
+    __all__.append('prs')
+except ImportError:
+    pass
