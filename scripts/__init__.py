@@ -61,3 +61,31 @@ try:
     __all__.append('enrichment')
 except ImportError:
     pass
+
+# Colocalization analysis
+try:
+    from . import colocalization
+    __all__.append('colocalization')
+except ImportError:
+    pass
+
+# PDF report generation (requires reportlab)
+try:
+    from . import report
+    __all__.append('report')
+except ImportError:
+    pass
+
+# Multi-phenotype comparison
+try:
+    from . import multiphenotype
+    __all__.append('multiphenotype')
+except ImportError:
+    pass
+
+# REST API (requires fastapi)
+try:
+    from . import api
+    __all__.append('api')
+except ImportError:
+    pass

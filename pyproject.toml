@@ -62,8 +62,20 @@ ux = [
 streamlit = [
     "streamlit>=1.28.0",
 ]
+api = [
+    "fastapi>=0.100.0",
+    "uvicorn>=0.23.0",
+    "python-multipart>=0.0.6",
+]
+reports = [
+    "reportlab>=4.0.0",
+]
+docs = [
+    "mkdocs>=1.5.0",
+    "mkdocs-material>=9.0.0",
+]
 all = [
-    "alphagwas[genomics,viz,ux,streamlit]",
+    "alphagwas[genomics,viz,ux,streamlit,api,reports]",
 ]
 dev = [
     "pytest>=7.0.0",
