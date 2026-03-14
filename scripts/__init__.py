@@ -110,3 +110,24 @@ try:
     __all__.append('prs')
 except ImportError:
     pass
+
+# Authentication
+try:
+    from . import auth
+    __all__.append('auth')
+except ImportError:
+    pass
+
+# Job Queue (requires celery)
+try:
+    from . import queue
+    __all__.append('queue')
+except ImportError:
+    pass
+
+# CLI (requires click)
+try:
+    from . import cli
+    __all__.append('cli')
+except ImportError:
+    pass

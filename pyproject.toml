@@ -81,8 +81,17 @@ database = [
 ml = [
     "scikit-learn>=1.2.0",
 ]
+auth = [
+    "PyJWT>=2.8.0",
+]
+queue = [
+    "celery[redis]>=5.3.0",
+]
+cli = [
+    "click>=8.1.0",
+]
 all = [
-    "alphagwas[genomics,viz,ux,streamlit,api,reports,database]",
+    "alphagwas[genomics,viz,ux,streamlit,api,reports,database,auth,queue,cli]",
 ]
 dev = [
     "pytest>=7.0.0",
@@ -100,7 +109,8 @@ Repository = "https://github.com/glbala87/alphagwas.git"
 Issues = "https://github.com/glbala87/alphagwas/issues"
 
 [project.scripts]
-alphagwas = "run_pipeline:main"
+alphagwas = "scripts.cli:main"
+alphagwas-legacy = "run_pipeline:main"
 
 [tool.setuptools]
 packages = ["scripts"]
