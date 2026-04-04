@@ -18,7 +18,7 @@ cyvcf2==0.31.1       # Fast VCF parsing
 # ============================================
 # Data formats
 # ============================================
-pyarrow==17.0.0      # Parquet support
+pyarrow==21.0.0      # Parquet support
 
 # ============================================
 # API and networking
