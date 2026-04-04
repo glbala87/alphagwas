@@ -1,0 +1,11 @@
+chromosome	position	rsid	gene	trait	beta	maf	source
+5	58975251	rs10065637	PDE4D	Coronary_Artery_Disease	0.15	0.32	GWAS_Catalog
+3	90630668	rs1234567	EPHA3	Coronary_Artery_Disease	0.12	0.28	GWAS_Catalog
+21	180936571	rs9876543	TPTE	Blood_Pressure	-0.09	0.15	GWAS_Catalog
+15	54953229	rs2468135	TCF12	LDL_Cholesterol	0.11	0.41	GWAS_Catalog
+7	45012389	rs7777777	UNKNOWN	Coronary_Artery_Disease	0.08	0.22	Simulated
+2	21456789	rs2222222	APOB	LDL_Cholesterol	-0.22	0.18	GWAS_Catalog
+9	136155000	rs9999999	ABO	Coronary_Artery_Disease	0.19	0.30	GWAS_Catalog
+6	161010118	rs6666666	LPA	Coronary_Artery_Disease	0.35	0.07	GWAS_Catalog
+1	109817590	rs1111111	SORT1	LDL_Cholesterol	-0.14	0.25	Replication
+12	112059557	rs3333333	ALDH2	Coronary_Artery_Disease	0.10	0.12	GWAS_Catalog

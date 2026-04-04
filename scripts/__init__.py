@@ -131,3 +131,24 @@ try:
     __all__.append('cli')
 except ImportError:
     pass
+
+# Truthset validation
+try:
+    from . import validate_truthset
+    __all__.append('validate_truthset')
+except ImportError:
+    pass
+
+# Job storage
+try:
+    from . import job_store
+    __all__.append('job_store')
+except ImportError:
+    pass
+
+# Observability
+try:
+    from . import observability
+    __all__.append('observability')
+except ImportError:
+    pass

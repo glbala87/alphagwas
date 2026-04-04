@@ -87,3 +87,23 @@ scoring:
   consensus_method: "mean"  # mean, median, max
   # Minimum effect size to consider
   min_effect_threshold: 0.1
+
+# Truthset validation (optional)
+# Compare pipeline results against known causal variants
+validation:
+  # Path to truthset file (TSV/CSV with known variants)
+  # truthset_file: "data/input/sample_truthset.tsv"
+  # Matching strategy: rsid, position, window, or auto
+  match_strategy: "auto"
+  # Window size in bp for window-based matching
+  window_bp: 500000
+  # Column mappings for non-standard truthset files
+  # columns:
+  #   CHR: "chromosome"
+  #   BP: "position"
+  # Column name for effect sizes (for power analysis)
+  effect_column: "beta"
+  # Column name for MAF (for MAF-stratified analysis)
+  maf_column: "maf"
+  # Total number of variants tested (for specificity calculation)
+  # n_total_variants: 1000000

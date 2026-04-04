@@ -37,6 +37,13 @@ from scripts import (
     score_variants as step5
 )
 
+# Try to import truthset validation module
+try:
+    from scripts import validate_truthset as step7
+    VALIDATION_AVAILABLE = True
+except ImportError:
+    VALIDATION_AVAILABLE = False
+
 # Try to import visualization module
 try:
     from scripts import visualize as step6
@@ -84,6 +91,10 @@ STEPS = {
 # Add visualization step if available
 if VISUALIZE_AVAILABLE:
     STEPS[6] = ("Generate visualizations", step6.main, "Creating plots and reports")
+
+# Add truthset validation step if available
+if VALIDATION_AVAILABLE:
+    STEPS[7] = ("Truthset validation", step7.main, "Validating results against known variants")
 
 
 def validate_config(config_path: str) -> dict:
@@ -342,6 +353,7 @@ Examples:
   python run_pipeline.py --step 4,5           # Run steps 4 and 5
   python run_pipeline.py --config my.yaml     # Use custom config
   python run_pipeline.py --visualize          # Generate visualizations only
+  python run_pipeline.py --step 7             # Run truthset validation only
 
 Steps:
   1. Extract GWAS-significant variants
@@ -350,6 +362,7 @@ Steps:
   4. Run AlphaGenome predictions
   5. Score and prioritize variants
   6. Generate visualizations (optional)
+  7. Truthset validation (optional, requires validation config)
         """
     )
 
