@@ -12,6 +12,7 @@ Supports SQLite (local) and PostgreSQL (production).
 
 import json
 import logging
+import os
 from contextlib import contextmanager
 from datetime import datetime
 from enum import Enum
@@ -41,16 +42,28 @@ class AlphaGWASDatabase:
         self,
         db_url: str = "sqlite:///alphagwas.db",
         echo: bool = False,
+        pool_size: int = 5,
+        max_overflow: int = 10,
+        pool_timeout: int = 30,
+        pool_recycle: int = 1800,
     ):
         """
         Initialize database connection.
 
         Args:
             db_url: Database URL (sqlite:///path.db or postgresql://user:pass@host/db)
-            echo: Echo SQL statements for debugging
+            echo: Echo SQL statements for debugging (disable in production)
+            pool_size: Number of connections in the pool (PostgreSQL only)
+            max_overflow: Max connections beyond pool_size (PostgreSQL only)
+            pool_timeout: Seconds to wait for a connection from pool
+            pool_recycle: Seconds after which connections are recycled
         """
         self.db_url = db_url
         self.echo = echo
+        self.pool_size = pool_size
+        self.max_overflow = max_overflow
+        self.pool_timeout = pool_timeout
+        self.pool_recycle = pool_recycle
         self.engine = None
         self.Session = None
         self._init_db()
@@ -61,20 +74,41 @@ class AlphaGWASDatabase:
             from sqlalchemy import create_engine
             from sqlalchemy.orm import sessionmaker
 
-            self.engine = create_engine(self.db_url, echo=self.echo)
+            engine_kwargs = {"echo": self.echo}
+
+            # Configure connection pooling for non-SQLite databases
+            if not self.db_url.startswith("sqlite"):
+                engine_kwargs.update({
+                    "pool_size": self.pool_size,
+                    "max_overflow": self.max_overflow,
+                    "pool_timeout": self.pool_timeout,
+                    "pool_recycle": self.pool_recycle,
+                    "pool_pre_ping": True,  # verify connections before use
+                })
+
+            self.engine = create_engine(self.db_url, **engine_kwargs)
             self.Session = sessionmaker(bind=self.engine)
 
             # Create tables
             from .database_models import Base
 
             Base.metadata.create_all(self.engine)
-            logger.info(f"Database initialized: {self.db_url}")
+            logger.info(f"Database initialized: {self._safe_url()}")
 
         except ImportError:
             logger.warning(
                 "SQLAlchemy not installed. Install with: pip install sqlalchemy"
             )
             self.engine = None
+
+    def _safe_url(self) -> str:
+        """Return DB URL with password masked for logging."""
+        if "@" in self.db_url:
+            # mask password in postgresql://user:pass@host/db
+            parts = self.db_url.split("@")
+            prefix = parts[0].rsplit(":", 1)[0]
+            return f"{prefix}:****@{parts[1]}"
+        return self.db_url
 
     @contextmanager
     def session_scope(self) -> Generator:
@@ -155,13 +189,25 @@ class AlphaGWASDatabase:
         with self.session_scope() as session:
             analysis = session.query(Analysis).get(analysis_id)
             if analysis:
+                try:
+                    config = json.loads(analysis.config) if analysis.config else {}
+                except (json.JSONDecodeError, TypeError):
+                    logger.warning(f"Corrupt config JSON for analysis {analysis_id}")
+                    config = {}
+
+                try:
+                    metadata = json.loads(analysis.metadata) if analysis.metadata else {}
+                except (json.JSONDecodeError, TypeError):
+                    logger.warning(f"Corrupt metadata JSON for analysis {analysis_id}")
+                    metadata = {}
+
                 return {
                     "id": analysis.id,
                     "name": analysis.name,
                     "description": analysis.description,
                     "status": analysis.status,
-                    "config": json.loads(analysis.config),
-                    "metadata": json.loads(analysis.metadata),
+                    "config": config,
+                    "metadata": metadata,
                     "created_at": analysis.created_at.isoformat(),
                     "completed_at": (
                         analysis.completed_at.isoformat()
@@ -468,16 +514,17 @@ class AlphaGWASDatabase:
 
 
 # Convenience function for quick database setup
-def get_database(db_url: Optional[str] = None) -> AlphaGWASDatabase:
+def get_database(db_url: Optional[str] = None, echo: bool = False) -> AlphaGWASDatabase:
     """
     Get database instance.
 
     Args:
-        db_url: Database URL. If None, uses SQLite in current directory.
+        db_url: Database URL. If None, uses DATABASE_URL env var or SQLite default.
+        echo: Echo SQL statements (disable in production).
 
     Returns:
         AlphaGWASDatabase instance
     """
     if db_url is None:
-        db_url = "sqlite:///alphagwas.db"
-    return AlphaGWASDatabase(db_url)
+        db_url = os.getenv("DATABASE_URL", "sqlite:///alphagwas.db")
+    return AlphaGWASDatabase(db_url, echo=echo)

@@ -3,6 +3,9 @@
 Step 2: Identify LD proxies from 1000 Genomes reference panel.
 """
 
+import os
+import tempfile
+
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -40,31 +43,39 @@ def calculate_ld_plink(
         logger.info("Falling back to LDlink API or returning lead SNPs only")
         return pd.DataFrame()
 
-    # Write SNP list to file
-    snp_file = f"{output_prefix}_snps.txt"
-    with open(snp_file, 'w') as f:
-        for snp in snp_list:
-            f.write(f"{snp}\n")
-
-    # Run PLINK2 LD calculation
-    cmd = [
-        "plink2",
-        "--vcf", str(vcf_file),
-        "--extract", snp_file,
-        "--r2",
-        "--ld-window-kb", str(window_kb),
-        "--ld-window-r2", str(r2_threshold),
-        "--out", output_prefix
-    ]
-
+    # Write SNP list to a temporary file (auto-cleaned up)
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        ld_file = f"{output_prefix}.ld"
-        if Path(ld_file).exists():
-            ld_df = pd.read_csv(ld_file, sep=r'\s+')
-            return ld_df
-    except (subprocess.CalledProcessError, FileNotFoundError) as e:
-        logger.warning(f"PLINK2 not available or failed: {e}")
+        with tempfile.NamedTemporaryFile(mode='w', suffix='_snps.txt', delete=False) as snp_fh:
+            snp_file = snp_fh.name
+            for snp in snp_list:
+                snp_fh.write(f"{snp}\n")
+
+        # Run PLINK2 LD calculation
+        cmd = [
+            "plink2",
+            "--vcf", str(vcf_file),
+            "--extract", snp_file,
+            "--r2",
+            "--ld-window-kb", str(window_kb),
+            "--ld-window-r2", str(r2_threshold),
+            "--out", output_prefix
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            ld_file = f"{output_prefix}.ld"
+            if Path(ld_file).exists():
+                ld_df = pd.read_csv(ld_file, sep=r'\s+')
+                return ld_df
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            logger.warning(f"PLINK2 not available or failed: {e}")
+
+    finally:
+        # Clean up temp file
+        try:
+            os.unlink(snp_file)
+        except OSError:
+            pass
 
     return pd.DataFrame()
 
@@ -83,13 +94,19 @@ def query_ldlink_api(
     import time
 
     base_url = "https://ldlink.nih.gov/LDlinkRest/ldproxy"
+
+    ldlink_token = os.environ.get("LDLINK_TOKEN")
+    if not ldlink_token:
+        logger.warning("LDLINK_TOKEN environment variable not set. Get one from https://ldlink.nih.gov/?tab=apiaccess")
+        return pd.DataFrame()
+
     params = {
         "var": snp,
         "pop": population,
         "r2_d": "r2",
         "window": window,
         "genome_build": "grch37",
-        "token": "your_ldlink_token"  # Get from https://ldlink.nih.gov/?tab=apiaccess
+        "token": ldlink_token,
     }
 
     try:

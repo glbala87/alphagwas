@@ -147,8 +147,8 @@ class ClinVarAnnotator:
 
             return annotation
 
-        except Exception as e:
-            logger.debug(f"ClinVar lookup failed for {rsid}: {e}")
+        except requests.RequestException as e:
+            logger.warning(f"ClinVar lookup failed for {rsid}: {e}")
             return None
 
     def get_pathogenicity_score(self, significance: str) -> float:
@@ -277,8 +277,8 @@ class GnomADAnnotator:
             self.cache[variant_id] = annotation
             return annotation
 
-        except Exception as e:
-            logger.debug(f"gnomAD lookup failed for {variant_id}: {e}")
+        except requests.RequestException as e:
+            logger.warning(f"gnomAD lookup failed for {variant_id}: {e}")
             return None
 
 
@@ -355,8 +355,8 @@ class GTExAnnotator:
             self.cache[rsid] = annotation
             return annotation
 
-        except Exception as e:
-            logger.debug(f"GTEx lookup failed for {rsid}: {e}")
+        except requests.RequestException as e:
+            logger.warning(f"GTEx lookup failed for {rsid}: {e}")
             return None
 
 

@@ -50,8 +50,9 @@ class User(BaseModel):
     # Hashed password (never store plain text)
     password_hash: str = ""
 
-    # API key for programmatic access
-    api_key: Optional[str] = None
+    # API key hash for programmatic access (store hash, not plaintext)
+    api_key_hash: Optional[str] = None
+    api_key_prefix: Optional[str] = None  # first 8 chars for identification
     api_key_created: Optional[datetime] = None
 
 
@@ -65,9 +66,20 @@ class TokenPayload(BaseModel):
     type: str = "access"  # access or refresh
 
 
+def _get_secret_key() -> str:
+    """Get auth secret key from environment. Fail loudly if not set."""
+    key = os.getenv("AUTH_SECRET_KEY")
+    if not key:
+        raise RuntimeError(
+            "AUTH_SECRET_KEY environment variable is required. "
+            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+        )
+    return key
+
+
 class AuthConfig(BaseModel):
     """Authentication configuration."""
-    secret_key: str = Field(default_factory=lambda: os.getenv("AUTH_SECRET_KEY", secrets.token_hex(32)))
+    secret_key: str = Field(default_factory=_get_secret_key)
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
@@ -88,7 +100,7 @@ class AuthManager:
         """Initialize auth manager."""
         self.config = config or AuthConfig()
         self._users: dict[str, User] = {}  # In-memory store (use database in production)
-        self._api_keys: dict[str, str] = {}  # API key -> user_id mapping
+        self._api_key_index: dict[str, str] = {}  # key_hash -> user_id mapping
 
     # ==================== Password Management ====================
 
@@ -165,7 +177,7 @@ class AuthManager:
         if not user:
             user = self.get_user_by_email(username)
 
-        if user and self.verify_password(password, user.password_hash):
+        if user and user.is_active and self.verify_password(password, user.password_hash):
             user.last_login = datetime.utcnow()
             return user
         return None
@@ -241,6 +253,7 @@ class AuthManager:
             return None
 
         user = self.get_user(payload.sub)
+        # Re-verify user is active before issuing new token
         if not user or not user.is_active:
             return None
 
@@ -248,31 +261,40 @@ class AuthManager:
 
     # ==================== API Keys ====================
 
-    def generate_api_key(self, user: User) -> str:
-        """Generate API key for user."""
-        key = f"{self.config.api_key_prefix}{secrets.token_hex(24)}"
+    def _hash_api_key(self, key: str) -> str:
+        """Hash an API key for storage."""
+        return hashlib.sha256(key.encode()).hexdigest()
 
-        user.api_key = key
+    def generate_api_key(self, user: User) -> str:
+        """Generate API key for user. Returns the key (only shown once)."""
+        key = f"{self.config.api_key_prefix}{secrets.token_hex(24)}"
+        key_hash = self._hash_api_key(key)
+
+        # Store hash, not the key itself
+        user.api_key_hash = key_hash
+        user.api_key_prefix = key[:8]
         user.api_key_created = datetime.utcnow()
-        self._api_keys[key] = user.id
+        self._api_key_index[key_hash] = user.id
 
         logger.info(f"Generated API key for user: {user.username}")
         return key
 
     def verify_api_key(self, api_key: str) -> Optional[User]:
         """Verify API key and return user."""
-        user_id = self._api_keys.get(api_key)
+        key_hash = self._hash_api_key(api_key)
+        user_id = self._api_key_index.get(key_hash)
         if user_id:
             user = self.get_user(user_id)
-            if user and user.is_active and user.api_key == api_key:
+            if user and user.is_active and user.api_key_hash == key_hash:
                 return user
         return None
 
     def revoke_api_key(self, user: User) -> bool:
         """Revoke user's API key."""
-        if user.api_key and user.api_key in self._api_keys:
-            del self._api_keys[user.api_key]
-            user.api_key = None
+        if user.api_key_hash and user.api_key_hash in self._api_key_index:
+            del self._api_key_index[user.api_key_hash]
+            user.api_key_hash = None
+            user.api_key_prefix = None
             user.api_key_created = None
             logger.info(f"Revoked API key for user: {user.username}")
             return True

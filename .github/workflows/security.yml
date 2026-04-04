@@ -1,0 +1,146 @@
+name: Security
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Run weekly on Monday at 6:00 UTC
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  # Python dependency vulnerability scanning
+  dependency-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install safety pip-audit
+
+      - name: Check for known vulnerabilities (safety)
+        run: safety check -r requirements.txt --output json || true
+
+      - name: Audit dependencies (pip-audit)
+        run: pip-audit -r requirements.txt --format json --output pip-audit-results.json || true
+
+      - name: Upload audit results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-audit
+          path: pip-audit-results.json
+
+  # Static Application Security Testing (SAST)
+  sast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install bandit
+        run: pip install bandit[toml]
+
+      - name: Run bandit security linter
+        run: |
+          bandit -r scripts/ \
+            -f json \
+            -o bandit-results.json \
+            --severity-level medium \
+            --confidence-level medium \
+            -x scripts/tests \
+            || true
+
+      - name: Display bandit results
+        if: always()
+        run: |
+          bandit -r scripts/ \
+            --severity-level medium \
+            --confidence-level medium \
+            -x scripts/tests \
+            || true
+
+      - name: Upload bandit results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-results
+          path: bandit-results.json
+
+  # Docker image vulnerability scanning
+  container-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t alphagwas:scan .
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'alphagwas:scan'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+
+      - name: Upload Trivy scan results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Run Trivy (table output for PR comments)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'alphagwas:scan'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+
+  # Secret scanning
+  secrets-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # License compliance
+  license-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check licenses
+        run: |
+          pip install pip-licenses
+          pip install -r requirements.txt
+          pip-licenses --format=table --with-urls --order=license

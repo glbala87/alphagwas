@@ -161,6 +161,21 @@ if HAS_CELERY:
         import pandas as pd
         from scripts import extract_variants
 
+        # Idempotency check: skip if output already exists
+        output_path = Path(output_dir)
+        sig_file = output_path / "significant_variants.tsv"
+        lead_file = output_path / "lead_snps.tsv"
+        if sig_file.exists() and lead_file.exists():
+            sig_df = pd.read_csv(sig_file, sep="\t")
+            lead_df = pd.read_csv(lead_file, sep="\t")
+            logger.info(f"Skipping extract (output exists): {len(sig_df)} variants")
+            self.update_progress(1.0, "Complete (cached)")
+            return {
+                "n_significant": len(sig_df),
+                "n_lead_snps": len(lead_df),
+                "output_files": [str(sig_file), str(lead_file)],
+            }
+
         self.update_progress(0.1, "Loading GWAS data")
 
         gwas_df = pd.read_csv(input_file, sep="\t")
@@ -203,6 +218,13 @@ if HAS_CELERY:
         import pandas as pd
         from scripts import alphagenome_predict
 
+        # Idempotency check
+        if Path(output_file).exists():
+            pred_df = pd.read_parquet(output_file)
+            logger.info(f"Skipping predict (output exists): {len(pred_df)} predictions")
+            self.update_progress(1.0, "Complete (cached)")
+            return {"n_predictions": len(pred_df), "output_file": output_file}
+
         self.update_progress(0.1, "Loading variants")
 
         variants_df = pd.read_csv(variants_file, sep="\t")
@@ -244,6 +266,19 @@ if HAS_CELERY:
         """Score and rank variants."""
         import pandas as pd
         from scripts import score_variants
+
+        # Idempotency check
+        output_path = Path(output_dir)
+        ranked_file = output_path / "ranked_variants.tsv"
+        if ranked_file.exists():
+            ranked_df = pd.read_csv(ranked_file, sep="\t")
+            logger.info(f"Skipping score (output exists): {len(ranked_df)} variants")
+            self.update_progress(1.0, "Complete (cached)")
+            return {
+                "n_ranked": len(ranked_df),
+                "top_variant": ranked_df.iloc[0].to_dict() if len(ranked_df) > 0 else None,
+                "output_dir": str(output_path),
+            }
 
         self.update_progress(0.1, "Loading predictions")
 

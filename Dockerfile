@@ -71,5 +71,5 @@ CMD ["--help"]
 # ============================================
 # Health check
 # ============================================
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import pandas; import numpy; print('OK')" || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD python -c "import requests; r = requests.get('http://localhost:8000/health', timeout=5); r.raise_for_status()" 2>/dev/null || python -c "import pandas; import numpy; print('OK')" || exit 1

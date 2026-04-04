@@ -1,0 +1,19 @@
+AlphaGWAS Database Migrations (Alembic)
+
+Usage:
+  # Apply all migrations
+  alembic upgrade head
+
+  # Generate new migration after model changes
+  alembic revision --autogenerate -m "description of change"
+
+  # Rollback last migration
+  alembic downgrade -1
+
+  # Show current version
+  alembic current
+
+  # Show migration history
+  alembic history
+
+Set DATABASE_URL environment variable to use a non-default database.

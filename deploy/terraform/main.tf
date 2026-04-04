@@ -11,12 +11,13 @@ terraform {
     }
   }
 
-  # Uncomment to use S3 backend for state
-  # backend "s3" {
-  #   bucket = "alphagwas-terraform-state"
-  #   key    = "terraform.tfstate"
-  #   region = "us-east-1"
-  # }
+  backend "s3" {
+    bucket         = "alphagwas-terraform-state"
+    key            = "terraform.tfstate"
+    region         = "us-east-1"
+    encrypt        = true
+    dynamodb_table = "alphagwas-terraform-locks"
+  }
 }
 
 provider "aws" {
@@ -555,5 +556,204 @@ resource "aws_db_instance" "main" {
 
   tags = {
     Name = "${var.project_name}-db"
+  }
+}
+
+# ============================================
+# Terraform State Backend Bootstrap Resources
+# Run `terraform init` after creating these manually or via a separate bootstrap config
+# ============================================
+
+# VPC Flow Logs for security monitoring
+resource "aws_flow_log" "vpc" {
+  vpc_id                   = module.vpc.vpc_id
+  traffic_type             = "REJECT"
+  log_destination_type     = "cloud-watch-logs"
+  log_destination          = aws_cloudwatch_log_group.vpc_flow.arn
+  iam_role_arn             = aws_iam_role.vpc_flow_log.arn
+  max_aggregation_interval = 60
+
+  tags = {
+    Name = "${var.project_name}-vpc-flow-log"
+  }
+}
+
+resource "aws_cloudwatch_log_group" "vpc_flow" {
+  name              = "/vpc/${var.project_name}-flow-logs"
+  retention_in_days = var.log_retention_days
+
+  tags = {
+    Name = "${var.project_name}-vpc-flow-logs"
+  }
+}
+
+resource "aws_iam_role" "vpc_flow_log" {
+  name = "${var.project_name}-vpc-flow-log-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "vpc-flow-logs.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "vpc_flow_log" {
+  name = "${var.project_name}-vpc-flow-log-policy"
+  role = aws_iam_role.vpc_flow_log.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+          "logs:DescribeLogGroups",
+          "logs:DescribeLogStreams"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+# ============================================
+# CloudWatch Alarms
+# ============================================
+
+# SNS Topic for alerts
+resource "aws_sns_topic" "alerts" {
+  name = "${var.project_name}-alerts"
+
+  tags = {
+    Name = "${var.project_name}-alerts"
+  }
+}
+
+# API High CPU Alarm
+resource "aws_cloudwatch_metric_alarm" "api_cpu_high" {
+  alarm_name          = "${var.project_name}-api-cpu-high"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 3
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/ECS"
+  period              = 60
+  statistic           = "Average"
+  threshold           = 85
+  alarm_description   = "API CPU utilization exceeds 85%"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  ok_actions          = [aws_sns_topic.alerts.arn]
+
+  dimensions = {
+    ClusterName = aws_ecs_cluster.main.name
+    ServiceName = aws_ecs_service.api.name
+  }
+}
+
+# API High Memory Alarm
+resource "aws_cloudwatch_metric_alarm" "api_memory_high" {
+  alarm_name          = "${var.project_name}-api-memory-high"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 3
+  metric_name         = "MemoryUtilization"
+  namespace           = "AWS/ECS"
+  period              = 60
+  statistic           = "Average"
+  threshold           = 85
+  alarm_description   = "API memory utilization exceeds 85%"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  ok_actions          = [aws_sns_topic.alerts.arn]
+
+  dimensions = {
+    ClusterName = aws_ecs_cluster.main.name
+    ServiceName = aws_ecs_service.api.name
+  }
+}
+
+# ALB 5xx Error Rate Alarm
+resource "aws_cloudwatch_metric_alarm" "alb_5xx" {
+  alarm_name          = "${var.project_name}-alb-5xx-errors"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 2
+  metric_name         = "HTTPCode_Target_5XX_Count"
+  namespace           = "AWS/ApplicationELB"
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 10
+  alarm_description   = "More than 10 5xx errors in 5 minutes"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    LoadBalancer = aws_lb.main.arn_suffix
+    TargetGroup  = aws_lb_target_group.api.arn_suffix
+  }
+}
+
+# ALB Response Time Alarm
+resource "aws_cloudwatch_metric_alarm" "alb_latency" {
+  alarm_name          = "${var.project_name}-alb-high-latency"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 3
+  metric_name         = "TargetResponseTime"
+  namespace           = "AWS/ApplicationELB"
+  period              = 60
+  statistic           = "p99"
+  threshold           = 5
+  alarm_description   = "p99 response time exceeds 5 seconds"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    LoadBalancer = aws_lb.main.arn_suffix
+  }
+}
+
+# RDS CPU Alarm (when enabled)
+resource "aws_cloudwatch_metric_alarm" "rds_cpu" {
+  count = var.enable_rds ? 1 : 0
+
+  alarm_name          = "${var.project_name}-rds-cpu-high"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 3
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/RDS"
+  period              = 60
+  statistic           = "Average"
+  threshold           = 80
+  alarm_description   = "RDS CPU utilization exceeds 80%"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+
+  dimensions = {
+    DBInstanceIdentifier = aws_db_instance.main[0].identifier
+  }
+}
+
+# RDS Free Storage Alarm (when enabled)
+resource "aws_cloudwatch_metric_alarm" "rds_storage" {
+  count = var.enable_rds ? 1 : 0
+
+  alarm_name          = "${var.project_name}-rds-low-storage"
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "FreeStorageSpace"
+  namespace           = "AWS/RDS"
+  period              = 300
+  statistic           = "Average"
+  threshold           = 5368709120  # 5 GB in bytes
+  alarm_description   = "RDS free storage below 5 GB"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+
+  dimensions = {
+    DBInstanceIdentifier = aws_db_instance.main[0].identifier
   }
 }
