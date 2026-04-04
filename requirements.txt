@@ -34,7 +34,7 @@ rich==13.9.4         # Rich console output
 # ============================================
 # Static visualization (recommended)
 # ============================================
-matplotlib==3.9.2    # Plotting
+matplotlib==3.9.4    # Plotting
 seaborn==0.13.2      # Statistical visualizations
 
 # ============================================
