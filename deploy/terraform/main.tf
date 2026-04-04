@@ -42,7 +42,7 @@ data "aws_caller_identity" "current" {}
 # VPC
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
-  version = "~> 5.0"
+  version = "~> 6.6"
 
   name = "${var.project_name}-vpc"
   cidr = var.vpc_cidr
