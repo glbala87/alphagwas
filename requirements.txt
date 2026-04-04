@@ -13,7 +13,7 @@ scipy==1.14.1
 # Genomics tools
 # ============================================
 pyliftover==0.4.1    # Coordinate liftover
-cyvcf2==0.31.1       # Fast VCF parsing
+cyvcf2==0.32.1       # Fast VCF parsing
 
 # ============================================
 # Data formats
