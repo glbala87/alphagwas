@@ -28,7 +28,7 @@ requests==2.32.3
 # ============================================
 # Progress and UX (recommended)
 # ============================================
-tqdm==4.66.5         # Progress bars
+tqdm==4.67.3         # Progress bars
 rich==13.9.4         # Rich console output
 
 # ============================================
