@@ -45,7 +45,7 @@ plotly==5.24.1       # Interactive plots
 # ============================================
 # Streamlit dashboard (optional)
 # ============================================
-streamlit==1.39.0    # Web dashboard
+streamlit==1.50.0    # Web dashboard
 
 # ============================================
 # API framework (optional)
